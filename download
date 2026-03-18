@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# بيئة محلية (لا ترفع مفاتيحك أبداً!)
+.env.local
+secrets.txt
+
+# مؤقت
+*.tmp
+*.log
