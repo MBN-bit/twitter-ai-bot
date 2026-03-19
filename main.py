@@ -198,7 +198,7 @@ def craft_tweet_with_gemini(title: str, summary: str, source: str) -> str | None
 
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
+            model_name="gemini-1.5-flash",
             system_instruction=system_prompt,
         )
         response = model.generate_content(
