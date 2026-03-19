@@ -1,6 +1,6 @@
 """
 Twitter AI Bot - أداة أتمتة تويتر بالذكاء الاصطناعي
-تجلب أخبار الذكاء الاصطناعي، تصيغها بـ Gemini، وتنشرها مع صورة عبر Tweepy.
+تجلب أخبار الذكاء الاصطناعي، تصيغها بـ OpenRouter (Gemini)، وتنشرها مع صورة عبر Tweepy.
 """
 
 import os
@@ -8,11 +8,9 @@ import re
 import time
 import random
 import logging
-import hashlib
 import requests
 import feedparser
 import tweepy
-import google.generativeai as genai
 from io import BytesIO
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,15 +48,28 @@ RSS_FEEDS = [
     "https://rss.slashdot.org/Slashdot/slashdotMain",
 ]
 
-# كلمات دلالية لفلترة الأخبار المتعلقة بالذكاء الاصطناعي
+# كلمات دلالية لفلترة الأخبار المتعلقة بالذكاء الاصطناعي (محدثة وشاملة)
 AI_KEYWORDS = [
-    "ai", "artificial intelligence", "llm", "gpt", "gemini", "claude",
-    "llama", "mistral", "openai", "anthropic", "machine learning",
-    "deep learning", "neural", "model", "chatgpt", "copilot", "agent",
-    "diffusion", "midjourney", "stable diffusion", "multimodal",
-    "reasoning", "benchmark", "inference", "fine-tuning", "rag",
+    # مصطلحات عامة وأساسية
+    "ai", "artificial intelligence", "llm", "machine learning", "deep learning", 
+    "neural", "model", "agent", "agi", "asi", "multimodal",
+    
+    # الشركات والنماذج الكبيرة (الأمريكية والصينية)
+    "openai", "chatgpt", "gpt-4", "gpt-5", "sora", 
+    "anthropic", "claude", 
+    "google", "gemini", "deepmind",
+    "meta", "llama",
+    "xai", "grok",
+    "mistral", "qwen", "deepseek", "alibaba",
+    
+    # أدوات المطورين والـ Vibe Coding (الترند الجديد)
+    "vibe coding", "cursor", "cursor ai", "lovable", "bolt.new", "bolt", 
+    "devin", "copilot", "github copilot", "code interpreter",
+    
+    # مصطلحات الإطلاق والتحديثات
+    "release", "announces", "open source", "hugging face", "huggingface", 
+    "weights", "benchmark", "inference", "fine-tuning", "rag", "parameters"
 ]
-
 
 # ──────────────────────────────────────────────
 # 1. نظام الذاكرة (Anti-Spam)
@@ -73,7 +84,6 @@ def load_posted_urls() -> set:
     log.info(f"📂 تم تحميل {len(urls)} رابط من الذاكرة")
     return urls
 
-
 def save_posted_url(url: str) -> None:
     """إضافة رابط جديد وحذف القديم إن تجاوزنا الحد."""
     path = Path(POSTED_URLS_FILE)
@@ -84,13 +94,11 @@ def save_posted_url(url: str) -> None:
     if url not in existing:
         existing.append(url)
 
-    # احتفظ بآخر MAX_STORED_URLS رابط فقط
     if len(existing) > MAX_STORED_URLS:
         existing = existing[-MAX_STORED_URLS:]
 
     path.write_text("\n".join(existing) + "\n", encoding="utf-8")
     log.info(f"💾 تم حفظ الرابط في الذاكرة: {url[:60]}...")
-
 
 # ──────────────────────────────────────────────
 # 2. جلب الأخبار من RSS
@@ -101,12 +109,8 @@ def is_ai_related(title: str, summary: str) -> bool:
     text = (title + " " + summary).lower()
     return any(kw in text for kw in AI_KEYWORDS)
 
-
 def fetch_news(posted_urls: set) -> list[dict]:
-    """
-    جلب أخبار جديدة من جميع مصادر RSS.
-    يُعيد قائمة بالأخبار غير المنشورة مرتبة حسب الأحدث.
-    """
+    """جلب أخبار جديدة من جميع مصادر RSS."""
     new_items = []
     headers = {"User-Agent": "Mozilla/5.0 (compatible; AINewsBot/1.0)"}
 
@@ -116,12 +120,11 @@ def fetch_news(posted_urls: set) -> list[dict]:
             resp = requests.get(feed_url, headers=headers, timeout=15)
             feed = feedparser.parse(resp.content)
 
-            for entry in feed.entries[:10]:  # أحدث 10 مقالات من كل مصدر
+            for entry in feed.entries[:10]:
                 url   = entry.get("link", "").strip()
                 title = entry.get("title", "").strip()
                 summary = entry.get("summary", entry.get("description", "")).strip()
 
-                # تنظيف HTML من الملخص
                 summary = re.sub(r"<[^>]+>", " ", summary)
                 summary = re.sub(r"\s+", " ", summary).strip()
 
@@ -132,7 +135,6 @@ def fetch_news(posted_urls: set) -> list[dict]:
                 if not is_ai_related(title, summary):
                     continue
 
-                # جلب صورة الخبر
                 image_url = None
                 for key in ("media_thumbnail", "media_content"):
                     media = entry.get(key, [])
@@ -147,7 +149,7 @@ def fetch_news(posted_urls: set) -> list[dict]:
 
                 new_items.append({
                     "title":     title,
-                    "summary":   summary[:800],   # أول 800 حرف للسياق
+                    "summary":   summary[:800],
                     "url":       url,
                     "image_url": image_url,
                     "source":    feed.feed.get("title", feed_url),
@@ -159,21 +161,16 @@ def fetch_news(posted_urls: set) -> list[dict]:
     log.info(f"✅ وجدنا {len(new_items)} خبر جديد متعلق بالذكاء الاصطناعي")
     return new_items
 
-
 # ──────────────────────────────────────────────
-# 3. صياغة التغريدة بـ Gemini
+# 3. صياغة التغريدة بـ OpenRouter
 # ──────────────────────────────────────────────
 
 def craft_tweet_with_gemini(title: str, summary: str, source: str) -> str | None:
-    """
-    يستخدم Gemini لصياغة تغريدة بشرية وعفوية بناءً على محتوى الخبر.
-    """
+    """يستخدم OpenRouter لصياغة تغريدة بشرية وعفوية."""
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
-        log.error("❌ GEMINI_API_KEY غير موجود!")
+        log.error("❌ مفتاح GEMINI_API_KEY (OpenRouter) غير موجود!")
         return None
-
-    genai.configure(api_key=api_key)
 
     system_prompt = (
         "أنت تمثلني شخصياً على حسابي في تويتر. "
@@ -197,23 +194,30 @@ def craft_tweet_with_gemini(title: str, summary: str, source: str) -> str | None
     )
 
     try:
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction=system_prompt,
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "google/gemini-1.5-flash",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.85,
+                "max_tokens": 300
+            },
+            timeout=30
         )
-        response = model.generate_content(
-            user_prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.85,
-                max_output_tokens=300,
-            ),
-        )
-        tweet_text = response.text.strip()
+        response.raise_for_status()
+        data = response.json()
+        
+        tweet_text = data['choices'][0]['message']['content'].strip()
 
-        # إزالة أي علامات اقتباس خارجية قد يضيفها النموذج
         tweet_text = tweet_text.strip('"').strip("'").strip()
 
-        # قص إن تجاوز الحد
         if len(tweet_text) > TWEET_CHAR_LIMIT:
             tweet_text = tweet_text[:TWEET_CHAR_LIMIT - 3] + "..."
 
@@ -221,9 +225,10 @@ def craft_tweet_with_gemini(title: str, summary: str, source: str) -> str | None
         return tweet_text
 
     except Exception as e:
-        log.error(f"❌ خطأ في Gemini: {e}")
+        log.error(f"❌ خطأ في OpenRouter: {e}")
+        if 'response' in locals() and hasattr(response, 'text'):
+            log.error(f"تفاصيل الخطأ من السيرفر: {response.text}")
         return None
-
 
 # ──────────────────────────────────────────────
 # 4. رفع الصورة وإرسال التغريدة
@@ -243,13 +248,8 @@ def download_image(image_url: str) -> bytes | None:
         log.warning(f"⚠️ خطأ في تحميل الصورة: {e}")
     return None
 
-
 def post_tweet(tweet_text: str, news_url: str, image_data: bytes | None) -> bool:
-    """
-    ينشر التغريدة عبر Tweepy:
-    - يرفع الصورة عبر API v1.1
-    - ينشر التغريدة النصية مع الصورة عبر API v2
-    """
+    """ينشر التغريدة عبر Tweepy."""
     api_key     = os.environ.get("TWITTER_API_KEY", "")
     api_secret  = os.environ.get("TWITTER_API_SECRET", "")
     acc_token   = os.environ.get("TWITTER_ACCESS_TOKEN", "")
@@ -261,7 +261,6 @@ def post_tweet(tweet_text: str, news_url: str, image_data: bytes | None) -> bool
         return False
 
     try:
-        # ── API v1.1 (لرفع الوسائط فقط) ──────────────────
         auth_v1 = tweepy.OAuth1UserHandler(api_key, api_secret, acc_token, acc_secret)
         api_v1  = tweepy.API(auth_v1)
 
@@ -277,7 +276,6 @@ def post_tweet(tweet_text: str, news_url: str, image_data: bytes | None) -> bool
             except Exception as img_err:
                 log.warning(f"⚠️ فشل رفع الصورة، سيُنشر بدون صورة: {img_err}")
 
-        # ── API v2 (لنشر التغريدة) ────────────────────────
         client_v2 = tweepy.Client(
             bearer_token       = bearer,
             consumer_key       = api_key,
@@ -286,10 +284,9 @@ def post_tweet(tweet_text: str, news_url: str, image_data: bytes | None) -> bool
             access_token_secret= acc_secret,
         )
 
-        # دمج النص مع الرابط
         full_text = f"{tweet_text}\n\n{news_url}"
-
         payload = {"text": full_text}
+        
         if media_ids:
             payload["media"] = {"media_ids": [str(mid) for mid in media_ids]}
 
@@ -307,27 +304,23 @@ def post_tweet(tweet_text: str, news_url: str, image_data: bytes | None) -> bool
         log.error(f"❌ خطأ في Tweepy: {e}")
         return False
 
-
 # ──────────────────────────────────────────────
 # 5. الوظيفة الرئيسية
 # ──────────────────────────────────────────────
 
 def main():
     log.info("=" * 60)
-    log.info("🚀 بدء تشغيل Twitter AI Bot")
+    log.info("🚀 بدء تشغيل Twitter AI Bot (OpenRouter Edition)")
     log.info(f"⏰ الوقت: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
     log.info("=" * 60)
 
-    # 1. تحميل الذاكرة
     posted_urls = load_posted_urls()
-
-    # 2. جلب الأخبار
     news_items = fetch_news(posted_urls)
+    
     if not news_items:
         log.info("😴 لا توجد أخبار جديدة. سنحاول لاحقاً.")
         return
 
-    # 3. خلط عشوائي وأخذ خبر واحد (لتنويع المصادر)
     random.shuffle(news_items)
     item = news_items[0]
 
@@ -336,38 +329,33 @@ def main():
     log.info(f"   المصدر  : {item['source']}")
     log.info(f"   الرابط  : {item['url']}")
 
-    # 4. صياغة التغريدة
     tweet_text = craft_tweet_with_gemini(
         title   = item["title"],
         summary = item["summary"],
         source  = item["source"],
     )
+    
     if not tweet_text:
         log.error("❌ فشلت صياغة التغريدة. إيقاف.")
         return
 
-    # 5. تحميل الصورة
     image_data = download_image(item.get("image_url"))
 
-    # 6. إضافة تأخير عشوائي (يبدو أكثر إنسانية)
     delay = random.randint(5, 20)
     log.info(f"⏳ انتظار {delay} ثانية قبل النشر...")
     time.sleep(delay)
 
-    # 7. نشر التغريدة
     success = post_tweet(
         tweet_text = tweet_text,
         news_url   = item["url"],
         image_data = image_data,
     )
 
-    # 8. حفظ الرابط في الذاكرة إن نجح النشر
     if success:
         save_posted_url(item["url"])
         log.info("✅ انتهى بنجاح! سيقوم GitHub Actions بحفظ الملف.")
     else:
         log.warning("⚠️ لم يُنشر. لم يتم تحديث الذاكرة.")
-
 
 if __name__ == "__main__":
     main()
